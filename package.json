@@ -1,0 +1,17 @@
+{
+  "name": "mqttdmx",
+  "version": "1.0.0",
+  "description": "DMX controller over MQTT with fade support",
+  "main": "index.js",
+  "scripts": {
+    "start": "node index.js"
+  },
+  "keywords": ["dmx", "mqtt", "lighting"],
+  "author": "",
+  "license": "ISC",
+  "dependencies": {
+    "dmx": "^0.25.1",
+    "mqtt": "^5.3.5",
+    "minimist": "^1.2.8"
+  }
+}
