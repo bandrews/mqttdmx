@@ -1,0 +1,41 @@
+{
+  "_comment": "Every key mqttdmx reads, with its default value. output.driver and output.device have no default; the values here are examples, as are the groups. See docs/configuration.md.",
+  "mqtt": {
+    "server": "localhost",
+    "port": 1883,
+    "topic": "dmx",
+    "client_id": null,
+    "username": null,
+    "password": null
+  },
+  "output": {
+    "driver": "enttec-usb-dmx-pro",
+    "device": "auto",
+    "frame_rate": 40,
+    "startup_level": 0
+  },
+  "fade": {
+    "easing": "linear"
+  },
+  "twinkle": {
+    "min_level": 100,
+    "max_level": 255,
+    "min_duration": 500,
+    "max_duration": 2000,
+    "easing": "sine"
+  },
+  "groups": {
+    "HouseLights": {
+      "channels": [1, 2, 3, 4],
+      "description": "Overhead house lights"
+    },
+    "Spotlight": {
+      "channels": [10],
+      "description": "Stage spotlight"
+    }
+  },
+  "logging": {
+    "level": "info",
+    "format": "text"
+  }
+}

@@ -1,0 +1,63 @@
+# systemd service unit for the mqttdmx daemon.
+#
+# Install:
+#   sudo install -Dm755 target/release/mqttdmx /usr/local/bin/mqttdmx
+#   sudo useradd --system --no-create-home --shell /usr/sbin/nologin --groups dialout mqttdmx
+#   sudo install -Dm644 your-config.json /etc/mqttdmx/config.json
+#   sudo install -Dm644 packaging/mqttdmx.service /etc/systemd/system/mqttdmx.service
+#   sudo systemctl daemon-reload
+#   sudo systemctl enable --now mqttdmx
+#
+# Check the config before starting: mqttdmx --config /etc/mqttdmx/config.json --check-config
+#
+# mqttdmx recovers from broker and DMX interface outages on its own. It exits
+# non-zero only for an invalid config or an internal fault; Restart=on-failure
+# restarts it after a fault. A clean `systemctl stop` exits 0, and the DMX
+# interface keeps sending the last frame.
+
+[Unit]
+Description=mqttdmx MQTT-controlled DMX lighting controller
+Documentation=https://github.com/bandrews/mqttdmx
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+ExecStart=/usr/local/bin/mqttdmx --config /etc/mqttdmx/config.json
+Restart=on-failure
+RestartSec=2
+
+# Run as an unprivileged dedicated user. SupplementaryGroups=dialout grants
+# access to USB serial devices such as the Enttec DMX USB Pro.
+User=mqttdmx
+Group=mqttdmx
+SupplementaryGroups=dialout
+
+# Hardening. The daemon needs only its config (read-only), USB serial devices
+# and the network; everything else is locked down. Device access is left to the
+# dialout group rather than a DeviceAllow= list: systemd resolves a class such
+# as char-ttyUSB only when the service starts, so an interface plugged in after
+# boot, before its driver was loaded, would stay blocked until a restart.
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+PrivateTmp=true
+PrivateDevices=false
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectKernelLogs=true
+ProtectControlGroups=true
+ProtectClock=true
+ProtectHostname=true
+RestrictNamespaces=true
+RestrictRealtime=true
+RestrictSUIDSGID=true
+LockPersonality=true
+MemoryDenyWriteExecute=true
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
+SystemCallFilter=@system-service
+SystemCallErrorNumber=EPERM
+UMask=0077
+
+[Install]
+WantedBy=multi-user.target

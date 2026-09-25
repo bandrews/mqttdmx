@@ -1,0 +1,42 @@
+[package]
+name = "mqttdmx"
+version = "2.0.0"
+edition = "2021"
+rust-version = "1.85"
+authors = ["Mo Fang Heavy Industries LLC"]
+description = "MQTT-controlled DMX lighting controller with smooth fades"
+license = "MIT"
+
+[dependencies]
+# Serial output to the DMX interface. Without default features it enumerates
+# ports through sysfs and needs no libudev.
+serialport = { version = "4.10", default-features = false }
+
+# MQTT, without TLS
+rumqttc = { version = "0.24", default-features = false }
+
+# Async runtime for the MQTT side
+tokio = { version = "1", features = ["rt", "macros", "signal", "sync", "time"] }
+
+# JSON parsing
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+
+# CLI parsing
+clap = { version = "4.5", features = ["derive"] }
+
+# Logging
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["json", "env-filter"] }
+
+# Random levels and timing for twinkle
+rand = "0.8"
+
+[dev-dependencies]
+proptest = "1"
+tempfile = "3.8"
+
+[profile.release]
+lto = true
+codegen-units = 1
+panic = "abort"
