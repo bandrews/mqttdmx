@@ -1,301 +1,159 @@
-# MQTT DMX Controller
+# mqttdmx
 
-A lightweight Node.js application for controlling DMX lighting fixtures over MQTT. Supports direct channel control, smooth fades, named groups, and twinkle effects.
+mqttdmx is a small daemon that drives one DMX universe from MQTT messages. It talks to an Enttec DMX
+USB Pro (or a compatible interface), lets you name groups of channels, and handles fades, pulses and
+a random "twinkle" effect itself, so the sender only has to say what it wants and how long it should
+take.
 
-## Features
+It is written in Rust. An earlier Node.js prototype is kept in [`legacy/`](legacy/) for reference.
 
-- Control 512 DMX channels via MQTT
-- **Named Groups**: Define groups of channels for easy control
-- **Twinkle Effect**: Animated glow effect with configurable parameters
-- Simple subtopic format for quick channel updates
-- JSON message format for complex commands
-- Smooth fade transitions with configurable duration
-- Tracks all channel states in memory
-- Graceful shutdown (turns off all lights)
+## Quick start
 
-## Installation
+You need Rust 1.85 or later, an MQTT broker such as Mosquitto, and either an Enttec DMX USB Pro or
+nothing at all (the `null` driver sends nothing and is useful for trying things out).
 
 ```bash
-npm install
+git clone https://github.com/bandrews/mqttdmx.git
+cd mqttdmx
+cargo build --release
 ```
 
-## Usage
-
-Basic usage with default settings:
-
-```bash
-node index.js
-```
-
-With custom configuration:
-
-```bash
-node index.js --broker mqtt://192.168.1.25 --topic dmx --device /dev/ttyUSB0 --config ./config.json
-```
-
-### Command Line Options
-
-- `--broker <url>`: MQTT broker URL (default: `mqtt://192.168.1.25`)
-- `--topic <topic>`: MQTT topic prefix (default: `dmx`)
-- `--device <path>`: DMX device path (default: `/dev/ttyUSB0`)
-- `--driver <name>`: DMX driver (default: `enttec-open-usb-dmx`)
-- `--config <path>`: Path to JSON config file for groups and settings
-- `--help, -h`: Show help
-
-### Available DMX Drivers
-
-- `enttec-open-usb-dmx`: For Enttec Open DMX USB and compatible dongles (default)
-- `enttec-usb-dmx-pro`: For Enttec USB DMX Pro
-- `dmx4all`: For DMX4ALL devices
-- `null`: For testing without hardware
-
-## Configuration File
-
-Create a JSON config file to define light groups and twinkle settings:
+Write a config file that names your channels:
 
 ```json
 {
   "groups": {
-    "village": {
-      "channels": [1, 2, 3, 4],
-      "description": "Village houses"
-    },
-    "tree": {
-      "channels": [10, 11, 12],
-      "description": "Christmas tree lights"
-    },
-    "allLights": {
-      "channels": [1, 2, 3, 4, 10, 11, 12],
-      "description": "All lights"
-    }
-  },
-  "twinkle": {
-    "minBrightness": 100,
-    "maxBrightness": 255,
-    "minDuration": 500,
-    "maxDuration": 2000,
-    "variance": 0.3,
-    "easing": "sine"
+    "HouseLights": { "channels": [1, 2, 3, 4] },
+    "Spotlight":   { "channels": [10] }
   }
 }
 ```
 
-### Twinkle Configuration Options
-
-| Option | Default | Description |
-|--------|---------|-------------|
-| `minBrightness` | 100 | Minimum brightness during twinkle (0-255) |
-| `maxBrightness` | 255 | Maximum brightness during twinkle (0-255) |
-| `minDuration` | 500 | Minimum time for a twinkle cycle in ms |
-| `maxDuration` | 2000 | Maximum time for a twinkle cycle in ms |
-| `variance` | 0.3 | How much individual lights vary from each other (0-1) |
-| `easing` | "sine" | Easing function: "linear", "sine", or "ease-in-out" |
-
-## Message Formats
-
-### Simple Subtopic Format
-
-Set a single channel by publishing to `<topic>/<channel>`:
+Find the interface and start the daemon:
 
 ```bash
-# Set channel 1 to 255
-mosquitto_pub -h 192.168.1.25 -t dmx/1 -m 255
-
-# Set channel 100 to 128
-mosquitto_pub -h 192.168.1.25 -t dmx/100 -m 128
+./target/release/mqttdmx --list-devices
+./target/release/mqttdmx --config lights.json --server localhost \
+    --driver enttec-usb-dmx-pro --device auto
 ```
 
-### Group Control
+On Linux the user running mqttdmx needs to be in the `dialout` group to open the interface.
 
-Control groups by publishing to `<topic>/group/<groupname>`:
+Then send it something:
 
 ```bash
-# Set village group to 255
-mosquitto_pub -h 192.168.1.25 -t dmx/group/village -m '{"value": 255}'
-
-# Fade village group to 0 over 3 seconds
-mosquitto_pub -h 192.168.1.25 -t dmx/group/village -m '{"value": 0, "fade": 3000}'
-
-# Start twinkle on village group
-mosquitto_pub -h 192.168.1.25 -t dmx/group/village -m '{"twinkle": true}'
-
-# Start twinkle with custom settings
-mosquitto_pub -h 192.168.1.25 -t dmx/group/village -m '{"twinkle": true, "minBrightness": 150, "maxBrightness": 255, "minDuration": 800, "maxDuration": 2500}'
-
-# Stop twinkle on village group
-mosquitto_pub -h 192.168.1.25 -t dmx/group/village -m '{"twinkle": false}'
+mosquitto_pub -t dmx/group/HouseLights -m '{"value": 255, "fade": 2000}'
 ```
 
-### Query Topics
+## Commands
 
-Request information from the controller:
+Commands are addressed by topic. Levels are 0–255 and times are in milliseconds.
 
 ```bash
-# Get list of configured groups (publishes to dmx/status/groups)
-mosquitto_pub -h 192.168.1.25 -t dmx/get/groups -m ''
+# Set a group, or fade it
+mosquitto_pub -t dmx/group/HouseLights -m '{"value": 255}'
+mosquitto_pub -t dmx/group/HouseLights -m '{"value": 0, "fade": 10000}'
 
-# Get current state (publishes to dmx/status/state)
-mosquitto_pub -h 192.168.1.25 -t dmx/get/state -m ''
+# A bare number also works on group and channel topics
+mosquitto_pub -t dmx/channel/10 -m 255
+
+# Everything off, cancelling any running effect
+mosquitto_pub -t dmx -m '{"range": {"start": 1, "end": 512}, "value": 0}'
+
+# Effects
+mosquitto_pub -t dmx/group/Spotlight -m '{"pulse": "fast"}'
+mosquitto_pub -t dmx/group/HouseLights -m '{"twinkle": true}'
+mosquitto_pub -t dmx/group/HouseLights -m '{"twinkle": false}'
 ```
 
-### JSON Format
+[docs/commands.md](docs/commands.md) has the full list of fields and the rules for what gets
+rejected.
 
-Publish JSON messages to the main topic for advanced control:
+## How it behaves
 
-#### Set Single Channel
+**Overlapping commands.** Each channel follows the last command that touched it. If you fade a group
+and then set one of its channels, that channel stops fading and the rest carry on. Setting a level
+always cancels a fade, pulse or twinkle on those channels, so a blackout really is a blackout.
 
-```json
-{"channel": 1, "value": 255}
+**Fades.** A fade starts from whatever level the channel is showing at that moment, so interrupting
+one fade with another doesn't cause a jump. Fades are linear by default; `"easing": "sine"` gives an
+S-curve that eases in and out. Output is sent at 40 frames per second, rounded to the 256 steps DMX
+allows, so very slow fades near zero will show individual steps on some dimmers.
+
+**Pulse and twinkle.** Both leave the channel's set level alone and return to it when they finish or
+are stopped.
+
+**Bad input.** A message that doesn't parse, has an unknown field, or has a value out of range is
+rejected whole and logged with the reason. Nothing is partly applied. Commands published with the
+MQTT retain flag are applied when they arrive, but the stored copy the broker replays after a
+reconnect is ignored, so an old cue is never re-run.
+
+**Startup and shutdown.** Every channel starts at `startup_level` (0 unless you set it), and that is
+the first frame sent. On SIGTERM or SIGINT mqttdmx sends one last frame and exits. The Enttec Pro
+keeps repeating the last frame it received while it has power, so the lights hold their state while
+mqttdmx is stopped or restarting. Levels are not saved; after a restart everything is back at
+`startup_level`.
+
+**When things fail.** If the interface is missing or unplugged, mqttdmx keeps running, keeps track of
+levels and fades, and reopens the interface when it comes back, sending the current state straight
+away. If the broker is unreachable, it keeps retrying and the lights stay as they are. Neither
+condition makes it exit; only a bad config file does.
+
+## Monitoring
+
+mqttdmx publishes three retained topics:
+
+| Topic | Contents |
+|---|---|
+| `dmx/status/online` | `online`, or `offline` when mqttdmx stops or its connection drops (MQTT Last Will) |
+| `dmx/status/health` | version, and the interface's state, device path, firmware version and last error |
+| `dmx/status/groups` | the level each group was last set to, or `null` if its channels differ |
+
+Output is working when `online` is `online` and `output.state` in `health` is `connected`.
+
+Logs go to standard output. Each accepted command is logged at INFO and each rejected one at WARN:
+
+```text
+INFO mqttdmx::mqtt: group HouseLights: fade to 0 over 3000 ms (linear)
+WARN mqttdmx::mqtt: rejected command on dmx/group/HouseLights: unknown field "fdae"; payload: "{\"value\":0,\"fdae\":3000}"
 ```
 
-#### Set Multiple Channels
+## Configuration and deployment
 
-```json
-{"channels": {"1": 255, "2": 128, "3": 64}}
-```
+Settings come from a JSON file and command-line flags; flags win. Only `output.driver` (and
+`output.device` for the Enttec driver) has no default. See
+[docs/configuration.md](docs/configuration.md) and [`config.example.json`](config.example.json).
 
-#### Fade Single Channel
+A systemd unit is in [`packaging/mqttdmx.service`](packaging/mqttdmx.service) and a Dockerfile is in
+the repository root. [docs/deployment.md](docs/deployment.md) covers both, including how to give a
+container access to an interface that may be unplugged and replugged, and a list of things to check
+on real hardware.
 
-```json
-{"channel": 1, "value": 255, "fade": 5000}
-```
+## Documentation
 
-Fades channel 1 from current value to 255 over 5 seconds (5000ms).
+- [docs/commands.md](docs/commands.md): topics, payloads, validation and status topics
+- [docs/configuration.md](docs/configuration.md): config file and command-line flags
+- [docs/deployment.md](docs/deployment.md): systemd, Docker and hardware checks
+- [docs/troubleshooting.md](docs/troubleshooting.md): error messages and what they mean
+- [docs/decisions.md](docs/decisions.md): why it works the way it does
+- [CONTRIBUTING.md](CONTRIBUTING.md): building and testing
+- [CHANGELOG.md](CHANGELOG.md)
 
-#### Fade Multiple Channels
+## Limitations
 
-```json
-{"channels": {"1": 255, "2": 0, "3": 128}, "fade": 3000}
-```
+- One universe, output through an Enttec DMX USB Pro or a compatible interface. No Open DMX USB,
+  Art-Net or sACN.
+- No TLS connection to the broker.
+- 8-bit channels only.
+- The config file is read once at startup; changing groups needs a restart.
 
-Fades multiple channels simultaneously over 3 seconds.
+## License
 
-#### Control Group via JSON
+[MIT](LICENSE)
 
-```json
-{"group": "village", "value": 255}
-{"group": "village", "value": 0, "fade": 3000}
-{"group": "village", "twinkle": true}
-{"group": "village", "twinkle": false}
-```
+## AI statement
 
-#### Set Range to Same Value
+The design, review and testing are human; most of the Rust implementation was written by Claude,
+Anthropic's AI model.
 
-```json
-{"range": {"start": 1, "end": 17}, "value": 255}
-```
-
-Sets channels 1 through 10 to value 255.
-
-#### Set Range with Individual Values
-
-```json
-{"range": {"start": 1, "end": 3}, "values": [255, 128, 64]}
-```
-
-Sets channel 1 to 255, channel 2 to 128, and channel 3 to 64. The values array must match the range size.
-
-#### Fade Range
-
-```json
-{"range": {"start": 1, "end": 10}, "value": 0, "fade": 2000}
-```
-
-Fades channels 1 through 10 to 0 over 2 seconds.
-
-### Example MQTT Commands
-
-```bash
-# Simple channel set
-mosquitto_pub -h 192.168.1.25 -t dmx/1 -m 255
-
-# JSON single channel
-mosquitto_pub -h 192.168.1.25 -t dmx -m '{"channel": 1, "value": 255}'
-
-# JSON fade
-mosquitto_pub -h 192.168.1.25 -t dmx -m '{"channel": 1, "value": 255, "fade": 5000}'
-
-# JSON multiple channels
-mosquitto_pub -h 192.168.1.25 -t dmx -m '{"channels": {"1": 255, "2": 128, "3": 64}}'
-
-# JSON multiple channels with fade
-mosquitto_pub -h 192.168.1.25 -t dmx -m '{"channels": {"1": 255, "2": 0}, "fade": 2000}'
-
-# JSON range - set channels 1-10 to 255
-mosquitto_pub -h 192.168.1.25 -t dmx -m '{"range": {"start": 1, "end": 10}, "value": 255}'
-
-# JSON range with values - set channels 5-7 to different values
-mosquitto_pub -h 192.168.1.25 -t dmx -m '{"range": {"start": 5, "end": 7}, "values": [255, 128, 64]}'
-
-# JSON range with fade - fade channels 1-20 to 0 over 3 seconds
-mosquitto_pub -h 192.168.1.25 -t dmx -m '{"range": {"start": 1, "end": 20}, "value": 0, "fade": 3000}'
-
-# Group control - set all village lights to 255
-mosquitto_pub -h 192.168.1.25 -t dmx/group/village -m '{"value": 255}'
-
-# Group control - start twinkle
-mosquitto_pub -h 192.168.1.25 -t dmx/group/tree -m '{"twinkle": true}'
-
-# Get group list
-mosquitto_pub -h 192.168.1.25 -t dmx/get/groups -m ''
-mosquitto_sub -h 192.168.1.25 -t dmx/status/groups
-```
-
-## Running as a Service
-
-To run as a systemd service, create `/etc/systemd/system/mqttdmx.service`:
-
-```ini
-[Unit]
-Description=MQTT DMX Controller
-After=network.target
-
-[Service]
-Type=simple
-User=enigma
-WorkingDirectory=/repos/eleventhhourenigma/christmas/utilities/mqttdmx
-ExecStart=/usr/bin/node /repos/eleventhhourenigma/christmas/utilities/mqttdmx/index.js --config /repos/eleventhhourenigma/christmas/utilities/mqttdmx/config.json
-Restart=on-failure
-RestartSec=5s
-
-[Install]
-WantedBy=multi-user.target
-```
-
-Then enable and start:
-
-```bash
-sudo systemctl enable mqttdmx
-sudo systemctl start mqttdmx
-sudo systemctl status mqttdmx
-```
-
-## Device Permissions
-
-If you get permission errors accessing `/dev/ttyUSB0`, add your user to the `dialout` group:
-
-```bash
-sudo usermod -a -G dialout $USER
-```
-
-Then log out and log back in.
-
-## Architecture
-
-- **Channel State**: All 512 DMX channel values are tracked in memory
-- **Fade Engine**: Updates at 60fps for smooth transitions
-- **Twinkle Engine**: Updates at 30fps for efficient animation
-- **Concurrent Fades**: Multiple channels can fade independently
-- **Concurrent Twinkles**: Multiple groups can twinkle independently
-- **Fade Cancellation**: New commands cancel any active fade on affected channels
-- **Twinkle Cancellation**: Setting a static value on a twinkling group stops the twinkle
-
-## Testing Without Hardware
-
-For testing without DMX hardware:
-
-```bash
-node index.js --driver null --config ./config.json
-```
-
-This will run the application without sending data to a physical device.
+Copyright (c) 2025-2026 Mo Fang Heavy Industries LLC.
